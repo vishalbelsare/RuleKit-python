@@ -1,16 +1,75 @@
 """Contains classes representing rules and rulesets.
 """
+from typing import Generic
+from typing import TypeVar
 from typing import Union
 
 import numpy as np
+from jpype import JObject
 
+from rulekit.kaplan_meier import KaplanMeierEstimator
 from rulekit.params import Measures
 from rulekit.stats import RuleSetStatistics
 from rulekit.stats import RuleStatistics
 
 
-class Rule:
-    """Class representing single rule."""
+class InductionParameters:
+    """Induction parameters."""
+
+    def __init__(self, java_object):
+        self._java_object = java_object
+
+        self.minimum_covered: float = self._java_object.getMinimumCovered()
+        self.maximum_uncovered_fraction: float = (
+            self._java_object.getMaximumUncoveredFraction()
+        )
+        self.ignore_missing: bool = self._java_object.isIgnoreMissing()
+        self.pruning_enabled: bool = self._java_object.isPruningEnabled()
+        self.max_growing_condition: float = self._java_object.getMaxGrowingConditions()
+
+    @property
+    def induction_measure(self) -> Union[Measures, str]:
+        """
+        Returns:
+            Union[Measures, str]: Measure used for induction
+        """
+        return InductionParameters._get_measure_str(
+            self._java_object.getInductionMeasure()
+        )
+
+    @property
+    def pruning_measure(self) -> Union[Measures, str]:
+        """
+        Returns:
+            Union[Measures, str]: Measure used for pruning
+        """
+        return InductionParameters._get_measure_str(
+            self._java_object.getPruningMeasure()
+        )
+
+    @property
+    def voting_measure(self) -> Union[Measures, str]:
+        """
+        Returns:
+            Union[Measures, str]: Measure used for voting
+        """
+        return InductionParameters._get_measure_str(
+            self._java_object.getVotingMeasure()
+        )
+
+    @staticmethod
+    def _get_measure_str(measure) -> Union[Measures, str]:
+        name: str = measure.getName()
+        if name == "UserDefined":
+            return "UserDefined"
+        return Measures[name]
+
+    def __str__(self):
+        return str(self._java_object.toString())
+
+
+class BaseRule:
+    """Base class representing single rule."""
 
     def __init__(self, java_object):
         """:meta private:"""
@@ -63,10 +122,10 @@ class Rule:
             Dictionary containing covering information.
         """
         return {
-            'weighted_n': self.weighted_n,
-            'weighted_p': self.weighted_p,
-            'weighted_N': self.weighted_N,
-            'weighted_P': self.weighted_P,
+            "weighted_n": self.weighted_n,
+            "weighted_p": self.weighted_p,
+            "weighted_N": self.weighted_N,
+            "weighted_P": self.weighted_P,
         }
 
     def print_stats(self):
@@ -78,55 +137,63 @@ class Rule:
         return str(self._java_object.toString())
 
 
-class InductionParameters:
-    """Induction parameters.
-    """
+class ClassificationRule(BaseRule):
+    """Class representing classification rule"""
 
     def __init__(self, java_object):
-        self._java_object = java_object
+        super().__init__(java_object)
 
-        self.minimum_covered: float = self._java_object.getMinimumCovered()
-        self.maximum_uncovered_fraction: float = self._java_object.getMaximumUncoveredFraction()
-        self.ignore_missing: bool = self._java_object.isIgnoreMissing()
-        self.pruning_enabled: bool = self._java_object.isPruningEnabled()
-        self.max_growing_condition: float = self._java_object.getMaxGrowingConditions()
+        self._decision_class: str = str(self._java_object.getClassLabel())
 
     @property
-    def induction_measure(self) -> Union[Measures, str]:
-        """
-        Returns:
-            Union[Measures, str]: Measure used for induction
-        """
-        return InductionParameters._get_measure_str(self._java_object.getInductionMeasure())
+    def decision_class(self) -> str:
+        """Decision class of the rule"""
+        return self._decision_class
+
+
+class RegressionRule(BaseRule):
+    """Class representing regression rule"""
+
+    def __init__(self, java_object):
+        super().__init__(java_object)
+
+        self._conclusion_value: str = float(self._java_object.getConsequenceValue())
 
     @property
-    def pruning_measure(self) -> Union[Measures, str]:
-        """
-        Returns:
-            Union[Measures, str]: Measure used for pruning
-        """
-        return InductionParameters._get_measure_str(self._java_object.getPruningMeasure())
+    def conclusion_value(self) -> float:
+        """Value from the rule's conclusion"""
+        return self._conclusion_value
+
+
+class SurvivalRule(BaseRule):
+    """Class representing survival rule"""
+
+    def __init__(self, java_object):
+        super().__init__(java_object)
+
+        self._kaplan_meier_estimator: KaplanMeierEstimator = KaplanMeierEstimator(
+            java_object.getEstimator()
+        )
 
     @property
-    def voting_measure(self) -> Union[Measures, str]:
-        """
-        Returns:
-            Union[Measures, str]: Measure used for voting
-        """
-        return InductionParameters._get_measure_str(self._java_object.getVotingMeasure())
-
-    @staticmethod
-    def _get_measure_str(measure) -> Union[Measures, str]:
-        name: str = measure.getName()
-        if name == 'UserDefined':
-            return 'UserDefined'
-        return Measures[name]
-
-    def __str__(self):
-        return str(self._java_object.toString())
+    def kaplan_meier_estimator(self) -> KaplanMeierEstimator:
+        """Kaplan-Meier estimator from the rule concslusion"""
+        return self._kaplan_meier_estimator
 
 
-class RuleSet:
+def _rule_factory(java_object: JObject) -> BaseRule:
+    class_name: str = str(java_object.getClass().getName()).lower()
+    if "regression" in class_name:
+        return RegressionRule(java_object)
+    elif "survival" in class_name:
+        return SurvivalRule(java_object)
+    return ClassificationRule(java_object)
+
+
+T = TypeVar("T")
+
+
+class RuleSet(Generic[T]):
     """Class representing ruleset."""
 
     def __init__(self, java_object):
@@ -170,8 +237,10 @@ class RuleSet:
         """:meta private:"""
         res = []
         for rule in self.rules:
-            covering_info = rule._java_object.coversUnlabelled(  # pylint: disable=protected-access
-                example_set
+            covering_info = (
+                rule._java_object.coversUnlabelled(  # pylint: disable=protected-access
+                    example_set
+                )
             )
             covered_examples_indexes = []
             covered_examples_indexes += covering_info
@@ -179,9 +248,9 @@ class RuleSet:
         return np.array(res, dtype=object)
 
     @property
-    def rules(self) -> list[Rule]:
+    def rules(self) -> list[T]:
         """List of rules objects."""
-        return [Rule(java_rule) for java_rule in self._java_object.getRules()]
+        return [_rule_factory(java_rule) for java_rule in self._java_object.getRules()]
 
     def calculate_conditions_count(self) -> float:
         """
@@ -240,40 +309,31 @@ class RuleSet:
             Significance of the rule set.
         """
         significance = self._java_object.calculateSignificance(alpha)
-        return {
-            'p': significance.p,
-            'fraction': significance.fraction
-        }
+        return {"p": significance.p, "fraction": significance.fraction}
 
     def calculate_significance_fdr(self, alpha: float) -> dict:
         """
         Returns
         -------
         count: dict
-            Significance of the rule set with false discovery rate correction. Dictionary contains
-            two fields: *fraction* (fraction of rules significant at assumed level) and *p*
-             (average p-value of all rules).
+            Significance of the rule set with false discovery rate correction.
+            Dictionary contains two fields: *fraction* (fraction of rules significant
+            at assumed level) and *p* (average p-value of all rules).
         """
         significance = self._java_object.calculateSignificanceFDR(alpha)
-        return {
-            'p': significance.p,
-            'fraction': significance.fraction
-        }
+        return {"p": significance.p, "fraction": significance.fraction}
 
     def calculate_significance_fwer(self, alpha: float) -> dict:
         """
         Returns
         -------
         count: dict
-            Significance of the rule set with familiy-wise error rate correction. Dictionary
-             contains two fields: *fraction* (fraction of rules significant at assumed level)
-             and *p* (average p-value of all rules).
+            Significance of the rule set with familiy-wise error rate correction.
+            Dictionary contains two fields: *fraction* (fraction of rules significant
+            at assumed level) and *p* (average p-value of all rules).
         """
         significance = self._java_object.calculateSignificanceFWER(alpha)
-        return {
-            'p': significance.p,
-            'fraction': significance.fraction
-        }
+        return {"p": significance.p, "fraction": significance.fraction}
 
     def __str__(self):
         """Returns string representation of the object."""

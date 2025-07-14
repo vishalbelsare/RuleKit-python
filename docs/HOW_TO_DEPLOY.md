@@ -1,62 +1,34 @@
 # Deployment instruction
 
-> Don't forger to change version before deployment!
 > Deployment **MUST** be done from the `main` branch only!
 
-### 1. Update documentation on Github Pages
-> Make sure you installed docs dependencies in **SEPARATE** virtual env and activated it
+## 1. Change version
 
-In `docs` directory call call:
+Version is stored in few places (unfortunately):
+* `main.py` file, `__RULEKIT_RELEASE_VERSION__` variable should be set to the *.jar version of the RuleKit library used by this specific package version
+* `main.py` file, `__VERSION__` variable specify additional version number which should be elevated only when given release includes changes in Python but still uses the same *.jar version as the last existing release. 
+* `setup.py` version should be the same as `__VERSION__` in `main.py` file
 
-```bash
-build.py <VERSION_NUMBER>
-```
-e.g. 
-```bash
-build.py 2.18.0.0
-```
+To sum up:
+* If you migrate to new *.jar file -> change `__RULEKIT_RELEASE_VERSION__` and version in `setup.py`
+* If you change something in the package itself and continue to use the same version of RuleKit jar file -> bump only the last number of `__VERSION__`
 
-### 2. Update badges
+> ⚠️ **Always update version in `setup.py` to match `__VERSION__` from the `main.py` file!**
 
-In repo root directory:
-
-1. Update coverage badge
-```bash
-python -m coverage run -m unittest discover ./tests 
-python -m coverage xml -o ./docs/reports/coverage/coverage.xml  
-python -m coverage html -d ./docs/reports/coverage/
-genbadge coverage -i ./docs/reports/coverage/coverage.xml  -o ./docs/badges/coverage-badge.svg
-```
-
-2. Update test badge
-
-```bash
-rm -r ./docs/reports/junit
-mkdir ./docs/reports/junit
-python -m junitxml.main --o ./docs/reports/junit/junit.xml
-python -m junit2htmlreport ./docs/reports/junit/junit.xml ./docs/reports/junit/report.html
-genbadge tests -i ./docs/reports/junit/junit.xml -o ./docs/badges/test-badge.svg
-```
-
-3. Update flake8 badge
-
-```bash
-flake8 ./rulekit --exit-zero --format=html --htmldir ./docs/reports/flake8 --statistics --tee --output-file ./docs/reports/flake8/flake8stats.txt
-genbadge flake8 -i ./docs/reports/flake8/flake8stats.txt -o ./docs/badges/flake8-badge.svg
-```
-
-### 3. Create tag in Github repository 
+### 2. Create tag in Github repository 
 Create tag on current commit named `v{CURRENT_VERSION}`
 
-### 4. Create deployment in Github
+### 2. Create release in Github
 Use previously created tag for it.
 
-### 5. Deploy to pypi
+> Documentation will be automatically generated on new version release 
+
+### 3. Deploy to pypi
 In root repository directory:
 ```
 rm -r ./dist
-python -m build
-python -m twine check dist/*
-python -m twine upload  dist/*
+python setup.py sdist
+python -m twine check ./dist/*
+python -m twine upload  ./dist/*
 ```
 > For the last command use `__token__` as username and your token value as password when prompted.

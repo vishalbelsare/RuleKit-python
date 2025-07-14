@@ -1,5 +1,6 @@
 """Module containing classes for handling exceptions."""
 from typing import Any
+from typing import Callable
 
 from jpype import JException
 
@@ -55,7 +56,9 @@ class RuleKitMisconfigurationException(Exception):
         python_parameters: dict[str, Any]
     ) -> None:
 
-        super().__init__(self._prepare_message(java_parameters, python_parameters))
+        super().__init__(
+            self._prepare_message(java_parameters, python_parameters)
+        )
         self._java_parameters: dict[str, Any] = java_parameters
         self._python_parameters: dict[str, Any] = python_parameters
 
@@ -71,12 +74,15 @@ class RuleKitMisconfigurationException(Exception):
             java_value = java_parameters.get(key)
             python_value = python_parameters.get(key)
             line: str = f'  {key}: ({java_value},  {python_value}),'
-            if java_value != python_value:
+            # skip check for user defined measures
+            skip_check: bool = isinstance(python_value, Callable)
+            if java_value != python_value and not skip_check:
                 line = f'{line} <-- **DIFFERENT**'
             params_lines.append(line)
         message: str = (
             'RuleKit parameters configuration error' +
-            'RuleGenerator parameters configured in Java do not match with given parameters\n\n' +
+            'RuleGenerator parameters configured in Java do not' +
+            'match with given parameters\n\n' +
             'Parameters (first value is in Java, second is in Python):\n{\n' +
             '\n'.join(params_lines) +
             '\n}'
